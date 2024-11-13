@@ -3119,12 +3119,7 @@ mod tests {
             )
             .expect("created blueprint builder");
             builder
-                .sled_ensure_zone_multiple_nexus_with_config(
-                    sled_ids[2],
-                    1,
-                    false,
-                    Vec::new(),
-                )
+                .sled_add_zone_nexus_with_config(sled_ids[2], false, Vec::new())
                 .expect("added nexus to third sled");
             builder.build()
         };
@@ -3190,12 +3185,7 @@ mod tests {
             .expect("created blueprint builder");
             for &sled_id in &sled_ids {
                 builder
-                    .sled_ensure_zone_multiple_nexus_with_config(
-                        sled_id,
-                        1,
-                        false,
-                        Vec::new(),
-                    )
+                    .sled_add_zone_nexus_with_config(sled_id, false, Vec::new())
                     .expect("added nexus to third sled");
             }
             builder.build()
