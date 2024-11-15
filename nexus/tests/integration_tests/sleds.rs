@@ -71,6 +71,7 @@ async fn test_sleds_list(cptestctx: &ControlPlaneTestContext) {
                 sa_id,
                 &update_directory,
                 sim::SimMode::Explicit,
+                None,
             )
             .await
             .unwrap(),

@@ -623,6 +623,7 @@ async fn test_instance_start_creates_networking_state(
                 sa_id,
                 &update_directory,
                 sim::SimMode::Explicit,
+                None,
             )
             .await
             .unwrap(),
@@ -759,6 +760,7 @@ async fn test_instance_migrate(cptestctx: &ControlPlaneTestContext) {
         other_sled_id,
         &update_dir,
         sim::SimMode::Explicit,
+        None,
     )
     .await
     .unwrap();
@@ -948,6 +950,7 @@ async fn test_instance_migrate_v2p_and_routes(
             sa_id,
             &update_dir,
             omicron_sled_agent::sim::SimMode::Explicit,
+            None,
         )
         .await
         .unwrap();
@@ -1341,6 +1344,7 @@ async fn test_instance_failed_when_on_expunged_sled(
         other_sled_id,
         &update_dir,
         sim::SimMode::Explicit,
+        None,
     )
     .await
     .unwrap();
@@ -1767,6 +1771,7 @@ async fn test_instance_metrics_with_migration(
         other_sled_id,
         &update_dir,
         sim::SimMode::Explicit,
+        None,
     )
     .await
     .unwrap();
@@ -5944,6 +5949,7 @@ async fn test_instance_v2p_mappings(cptestctx: &ControlPlaneTestContext) {
                 sa_id,
                 &update_directory,
                 sim::SimMode::Explicit,
+                None,
             )
             .await
             .unwrap(),

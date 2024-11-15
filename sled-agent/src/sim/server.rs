@@ -179,7 +179,7 @@ impl Server {
         // on the physical rack.
         for zpool in &config.storage.zpools {
             let physical_disk_id = Uuid::new_v4();
-            let zpool_id = ZpoolUuid::new_v4();
+            let zpool_id = zpool.id.unwrap_or_else(ZpoolUuid::new_v4);
             let vendor = "synthetic-vendor".to_string();
             let serial = format!("synthetic-serial-{zpool_id}");
             let model = "synthetic-model".to_string();

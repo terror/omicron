@@ -8,6 +8,7 @@ use crate::updates::ConfigUpdates;
 use camino::Utf8Path;
 use dropshot::ConfigDropshot;
 use omicron_uuid_kinds::SledUuid;
+use omicron_uuid_kinds::ZpoolUuid;
 use serde::Deserialize;
 use serde::Serialize;
 pub use sled_hardware_types::Baseboard;
@@ -40,6 +41,7 @@ pub enum SimMode {
 /// Currently, each zpool will receive a single Crucible Dataset.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ConfigZpool {
+    pub id: Option<ZpoolUuid>,
     /// The size of the Zpool in bytes.
     pub size: u64,
 }
@@ -97,7 +99,7 @@ impl Config {
             update_directory.unwrap_or_else(|| "/nonexistent".into());
         let zpools = zpools.unwrap_or_else(|| {
             // By default, create 10 "virtual" U.2s, with 1 TB of storage.
-            vec![ConfigZpool { size: 1 << 40 }; 10]
+            vec![ConfigZpool { id: None, size: 1 << 40 }; 10]
         });
         Config {
             id,

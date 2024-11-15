@@ -824,6 +824,7 @@ pub(crate) async fn add_sleds(
             sa_id,
             &update_dir,
             omicron_sled_agent::sim::SimMode::Explicit,
+            None,
         )
         .await
         .unwrap();
