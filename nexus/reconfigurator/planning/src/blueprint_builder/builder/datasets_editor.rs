@@ -110,7 +110,7 @@ impl BlueprintDatasetsEditor {
                         // Bump generation number for any sled whose
                         // DatasetsConfig changed
                         if self.changed.contains(&sled_id) {
-                            config.generation = config.generation.next()
+                            config.generation = config.generation.next();
                         }
                         config
                     }
@@ -192,10 +192,7 @@ impl<'a> SledDatasetsEditor<'a> {
         num_expunged
     }
 
-    pub fn ensure_debug_dataset(
-        &mut self,
-        zpool: ZpoolName,
-    ) -> Ensure {
+    pub fn ensure_debug_dataset(&mut self, zpool: ZpoolName) -> Ensure {
         const DEBUG_QUOTA_SIZE_GB: u32 = 100;
 
         let address = None;
@@ -211,10 +208,7 @@ impl<'a> SledDatasetsEditor<'a> {
         )
     }
 
-    pub fn ensure_zone_root_dataset(
-        &mut self,
-        zpool: ZpoolName,
-    ) -> Ensure {
+    pub fn ensure_zone_root_dataset(&mut self, zpool: ZpoolName) -> Ensure {
         let address = None;
         let quota = None;
         let reservation = None;
@@ -292,7 +286,8 @@ impl<'a> SledDatasetsEditor<'a> {
             .copied()
             .unwrap_or_else(|| self.rng.next_dataset());
 
-        self.config.datasets.insert(id, make_config(id));
+        let new_config = make_config(id);
+        self.config.datasets.insert(id, new_config);
         self.changed = true;
 
         // We updated our config, so also record this ID in our "present in
