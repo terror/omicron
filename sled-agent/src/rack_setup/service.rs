@@ -110,7 +110,6 @@ use omicron_common::ledger::{self, Ledger, Ledgerable};
 use omicron_ddm_admin_client::{Client as DdmAdminClient, DdmError};
 use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::SledUuid;
-use omicron_uuid_kinds::ZpoolUuid;
 use serde::{Deserialize, Serialize};
 use sled_agent_client::{
     types as SledAgentTypes, Client as SledAgentClient, Error as SledAgentError,
@@ -815,63 +814,6 @@ impl ServiceInner {
             self.log.new(o!("component" => "NexusClient")),
         );
 
-        // Convert all the information we have about datasets into a format
-        // which can be stored in CockroachDB once they make their way to Nexus.
-        //
-        // TODO(https://github.com/oxidecomputer/omicron/issues/6998): Remove me!
-        // This is somewhat redundant with the information we're supplying in
-        // the initial blueprint, and could be de-duplicated if we can fully
-        // migrate to a world where "datasets exist in the blueprint, but not
-        // in CockroachDB".
-        let mut datasets = HashMap::<
-            (ZpoolUuid, DatasetKind),
-            NexusTypes::DatasetCreateRequest,
-        >::new();
-        for sled_config in service_plan.services.values() {
-            // Add all datasets, as they appear in our plan.
-            //
-            // Note that we assume all datasets have a "None" address
-            // field -- the coupling of datasets with addresses is linked
-            // to usage by specific zones.
-            for dataset in sled_config.datasets.datasets.values() {
-                let duplicate = datasets.insert(
-                    (dataset.name.pool().id(), dataset.name.kind().clone()),
-                    NexusTypes::DatasetCreateRequest {
-                        zpool_id: dataset.name.pool().id().into_untyped_uuid(),
-                        dataset_id: dataset.id,
-                        request: NexusTypes::DatasetPutRequest {
-                            address: None,
-                            kind: dataset.name.kind().clone(),
-                        },
-                    },
-                );
-
-                if let Some(dataset) = duplicate {
-                    panic!("Inserting multiple datasets of the same kind on a single zpool: {dataset:?}");
-                }
-            }
-
-            // If any datasets came from a zone, patch their addresses.
-            //
-            // It would be better if "datasets" was keyed off of a DatasetUuid,
-            // but the SeldConfig storing zones does not know about
-            // DatasetUuids.
-            //
-            // Instead, we use the (Zpool, DatasetKind) tuple as a unique
-            // identifier for the dataset.
-            for zone in &sled_config.zones {
-                if let Some(dataset) = zone.zone_type.durable_dataset() {
-                    let Some(entry) = datasets.get_mut(&(
-                        dataset.dataset.pool_name.id(),
-                        dataset.kind.clone(),
-                    )) else {
-                        panic!("zone's durable dataset not found");
-                    };
-                    entry.request.address = Some(dataset.address.to_string());
-                }
-            }
-        }
-        let datasets: Vec<_> = datasets.into_values().collect();
         let internal_services_ip_pool_ranges = config
             .internal_services_ip_pool_ranges
             .clone()
@@ -1058,7 +1000,6 @@ impl ServiceInner {
             blueprint,
             physical_disks,
             zpools,
-            datasets,
             internal_services_ip_pool_ranges,
             certs: config.external_certificates.clone(),
             internal_dns_zone_config: service_plan.dns_config.clone(),

@@ -63,6 +63,7 @@ use omicron_common::api::external::NameOrId;
 use omicron_common::api::external::ResourceType;
 use omicron_common::api::internal::shared::ExternalPortDiscovery;
 use omicron_common::api::internal::shared::LldpAdminStatus;
+use omicron_uuid_kinds::GenericUuid;
 use omicron_uuid_kinds::SledUuid;
 use oxnet::IpNet;
 use sled_agent_client::types::AddSledRequest;
@@ -140,15 +141,18 @@ impl super::Nexus {
             .collect();
 
         let datasets: Vec<_> = request
-            .datasets
-            .into_iter()
-            .map(|dataset| {
-                db::model::Dataset::new(
-                    dataset.dataset_id,
-                    dataset.zpool_id,
-                    dataset.request.address,
-                    dataset.request.kind,
-                )
+            .blueprint
+            .blueprint_datasets
+            .values()
+            .flat_map(|config| {
+                config.datasets.values().map(|dataset| {
+                    db::model::Dataset::new(
+                        dataset.id,
+                        dataset.pool.id().into_untyped_uuid(),
+                        dataset.address,
+                        dataset.kind.clone(),
+                    )
+                })
             })
             .collect();
 

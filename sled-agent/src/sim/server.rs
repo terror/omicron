@@ -39,7 +39,6 @@ use omicron_common::api::external::Generation;
 use omicron_common::api::external::MacAddr;
 use omicron_common::api::external::Vni;
 use omicron_common::api::internal::nexus::Certificate;
-use omicron_common::api::internal::shared::DatasetKind;
 use omicron_common::backoff::{
     retry_notify, retry_policy_internal_service_aggressive, BackoffError,
 };
@@ -178,7 +177,6 @@ impl Server {
             task.await.unwrap();
         }
 
-        let mut datasets = vec![];
         // Create all the Zpools requested by the config, and allocate a single
         // Crucible dataset for each. This emulates the setup we expect to have
         // on the physical rack.
@@ -203,17 +201,6 @@ impl Server {
                 .create_zpool(zpool_id, physical_disk_id, zpool.size)
                 .await;
             let dataset_id = DatasetUuid::new_v4();
-            let address =
-                sled_agent.create_crucible_dataset(zpool_id, dataset_id).await;
-
-            datasets.push(NexusTypes::DatasetCreateRequest {
-                zpool_id: zpool_id.into_untyped_uuid(),
-                dataset_id,
-                request: NexusTypes::DatasetPutRequest {
-                    address: Some(address.to_string()),
-                    kind: DatasetKind::Crucible,
-                },
-            });
 
             // Whenever Nexus tries to allocate a region, it should complete
             // immediately. What efficiency!
@@ -515,24 +502,8 @@ pub async fn run_standalone_server(
             .unwrap(),
     };
 
-    let mut datasets = vec![];
     let physical_disks = server.sled_agent.get_all_physical_disks().await;
     let zpools = server.sled_agent.get_zpools().await;
-    for zpool in &zpools {
-        let zpool_id = ZpoolUuid::from_untyped_uuid(zpool.id);
-        for (dataset_id, address) in
-            server.sled_agent.get_crucible_datasets(zpool_id).await
-        {
-            datasets.push(NexusTypes::DatasetCreateRequest {
-                zpool_id: zpool.id,
-                dataset_id,
-                request: NexusTypes::DatasetPutRequest {
-                    address: Some(address.to_string()),
-                    kind: DatasetKind::Crucible,
-                },
-            });
-        }
-    }
 
     let certs = match &rss_args.tls_certificate {
         Some(c) => vec![c.clone()],
@@ -573,7 +544,6 @@ pub async fn run_standalone_server(
         blueprint,
         physical_disks,
         zpools,
-        datasets,
         internal_services_ip_pool_ranges,
         certs,
         internal_dns_zone_config: dns_config,

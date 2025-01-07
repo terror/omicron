@@ -20,7 +20,6 @@ use omicron_common::api::internal::shared::DatasetKind;
 use omicron_common::api::internal::shared::ExternalPortDiscovery;
 use omicron_common::api::internal::shared::RackNetworkConfig;
 use omicron_common::api::internal::shared::SourceNatConfig;
-use omicron_uuid_kinds::DatasetUuid;
 use omicron_uuid_kinds::PhysicalDiskUuid;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -156,13 +155,6 @@ impl fmt::Display for ServiceKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct DatasetCreateRequest {
-    pub zpool_id: Uuid,
-    pub dataset_id: DatasetUuid,
-    pub request: DatasetPutRequest,
-}
-
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct RackInitializationRequest {
     /// Blueprint describing services initialized by RSS.
@@ -174,8 +166,6 @@ pub struct RackInitializationRequest {
     /// Zpools created within the physical disks created by the control plane.
     pub zpools: Vec<ZpoolPutRequest>,
 
-    /// Datasets on the rack which have been provisioned by RSS.
-    pub datasets: Vec<DatasetCreateRequest>,
     /// Ranges of the service IP pool which may be used for internal services,
     /// such as Nexus.
     pub internal_services_ip_pool_ranges: Vec<IpRange>,

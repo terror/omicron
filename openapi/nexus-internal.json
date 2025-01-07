@@ -3160,51 +3160,9 @@
           "start_time"
         ]
       },
-      "DatasetCreateRequest": {
-        "type": "object",
-        "properties": {
-          "dataset_id": {
-            "$ref": "#/components/schemas/TypedUuidForDatasetKind"
-          },
-          "request": {
-            "$ref": "#/components/schemas/DatasetPutRequest"
-          },
-          "zpool_id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "required": [
-          "dataset_id",
-          "request",
-          "zpool_id"
-        ]
-      },
       "DatasetKind": {
         "description": "The kind of dataset. See the `DatasetKind` enum in omicron-common for possible values.",
         "type": "string"
-      },
-      "DatasetPutRequest": {
-        "description": "Describes a dataset within a pool.",
-        "type": "object",
-        "properties": {
-          "address": {
-            "nullable": true,
-            "description": "Address on which a service is responding to requests for the dataset.",
-            "type": "string"
-          },
-          "kind": {
-            "description": "Type of dataset being inserted.",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DatasetKind"
-              }
-            ]
-          }
-        },
-        "required": [
-          "kind"
-        ]
       },
       "DemoSaga": {
         "description": "Identifies an instance of the demo saga",
@@ -4956,13 +4914,6 @@
               "$ref": "#/components/schemas/Certificate"
             }
           },
-          "datasets": {
-            "description": "Datasets on the rack which have been provisioned by RSS.",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DatasetCreateRequest"
-            }
-          },
           "external_dns_zone_name": {
             "description": "delegated DNS name for external DNS",
             "type": "string"
@@ -5025,7 +4976,6 @@
           "allowed_source_ips",
           "blueprint",
           "certs",
-          "datasets",
           "external_dns_zone_name",
           "external_port_count",
           "internal_dns_zone_config",
