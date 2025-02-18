@@ -28,6 +28,7 @@ use omicron_common::api::internal::shared::VirtualNetworkInterfaceHost;
 use oxide_vpc::api::AddRouterEntryReq;
 use oxide_vpc::api::DelRouterEntryReq;
 use oxide_vpc::api::DhcpCfg;
+use oxide_vpc::api::Direction;
 use oxide_vpc::api::ExternalIpCfg;
 use oxide_vpc::api::IpCfg;
 use oxide_vpc::api::IpCidr;
@@ -53,6 +54,11 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use uuid::Uuid;
+
+mod opte_impl;
+
+use self::opte_impl::OpteImpl;
+use self::opte_impl::OpteImplPlatform;
 
 /// Stored routes (and usage count) for a given VPC/subnet.
 #[derive(Debug, Clone)]
@@ -133,8 +139,14 @@ impl PortManager {
     }
 
     /// Create an OPTE port
-    #[cfg_attr(not(target_os = "illumos"), allow(unused_variables))]
     pub fn create_port(
+        &self,
+        params: PortCreateParams,
+    ) -> Result<(Port, PortTicket), Error> {
+        self.create_port_impl::<OpteImplPlatform>(params)
+    }
+
+    fn create_port_impl<OpteHdl: OpteImpl>(
         &self,
         params: PortCreateParams,
     ) -> Result<(Port, PortTicket), Error> {
@@ -288,17 +300,13 @@ impl PortManager {
             "vpc_cfg" => ?&vpc_cfg,
             "dhcp_config" => ?&dhcp_config,
         );
-        #[cfg(target_os = "illumos")]
-        let hdl = {
-            let hdl = opte_ioctl::OpteHdl::open(opte_ioctl::OpteHdl::XDE_CTL)?;
-            hdl.create_xde(
-                &port_name,
-                vpc_cfg,
-                dhcp_config,
-                /* passthru = */ false,
-            )?;
-            hdl
-        };
+        let hdl = OpteHdl::open()?;
+        hdl.create_xde(
+            &port_name,
+            vpc_cfg,
+            dhcp_config,
+            /* passthru = */ false,
+        )?;
         let (port, ticket) = {
             let mut ports = self.inner.ports.lock().unwrap();
             let ticket = PortTicket::new(nic.id, nic.kind, self.inner.clone());
@@ -349,7 +357,6 @@ impl PortManager {
             "port_name" => &port_name,
             "rules" => ?&rules,
         );
-        #[cfg(target_os = "illumos")]
         hdl.set_fw_rules(&oxide_vpc::api::SetFwRulesReq {
             port_name: port_name.clone(),
             rules,
@@ -397,7 +404,6 @@ impl PortManager {
                     ),
                 };
 
-                #[cfg(target_os = "illumos")]
                 hdl.add_router_entry(&route)?;
 
                 debug!(
@@ -414,27 +420,22 @@ impl PortManager {
         //       This, external IPs, and cfg'able state
         //       (DHCP?) are probably worth being managed by an RPW.
         for block in &nic.transit_ips {
-            #[cfg(target_os = "illumos")]
-            {
-                use oxide_vpc::api::Direction;
-
-                // In principle if this were an operation on an existing
-                // port, we would explicitly undo the In addition if the
-                // Out addition fails.
-                // However, failure here will just destroy the port
-                // outright -- this should only happen if an excessive
-                // number of rules are specified.
-                hdl.allow_cidr(
-                    &port_name,
-                    super::net_to_cidr(*block),
-                    Direction::In,
-                )?;
-                hdl.allow_cidr(
-                    &port_name,
-                    super::net_to_cidr(*block),
-                    Direction::Out,
-                )?;
-            }
+            // In principle if this were an operation on an existing
+            // port, we would explicitly undo the In addition if the
+            // Out addition fails.
+            // However, failure here will just destroy the port
+            // outright -- this should only happen if an excessive
+            // number of rules are specified.
+            hdl.allow_cidr(
+                &port_name,
+                super::net_to_cidr(*block),
+                Direction::In,
+            )?;
+            hdl.allow_cidr(
+                &port_name,
+                super::net_to_cidr(*block),
+                Direction::Out,
+            )?;
 
             debug!(
                 self.inner.log,
@@ -461,6 +462,13 @@ impl PortManager {
     }
 
     pub fn vpc_routes_ensure(
+        &self,
+        new_routes: Vec<ResolvedVpcRouteSet>,
+    ) -> Result<(), Error> {
+        self.vpc_routes_ensure_impl::<OpteImplPlatform>(new_routes)
+    }
+
+    fn vpc_routes_ensure_impl<OpteHdl: OpteImpl>(
         &self,
         new_routes: Vec<ResolvedVpcRouteSet>,
     ) -> Result<(), Error> {
@@ -514,8 +522,7 @@ impl PortManager {
         // to prevent several nexuses computng and applying deltas
         // out of order.
         let ports = self.inner.ports.lock().unwrap();
-        #[cfg(target_os = "illumos")]
-        let hdl = opte_ioctl::OpteHdl::open(opte_ioctl::OpteHdl::XDE_CTL)?;
+        let hdl = OpteHdl::open()?;
 
         // Propagate deltas out to all ports.
         for (interface_id, port) in ports.iter() {
@@ -555,7 +562,6 @@ impl PortManager {
                         ),
                     };
 
-                    #[cfg(target_os = "illumos")]
                     hdl.del_router_entry(&route)?;
 
                     debug!(
@@ -577,7 +583,6 @@ impl PortManager {
                         ),
                     };
 
-                    #[cfg(target_os = "illumos")]
                     hdl.add_router_entry(&route)?;
 
                     debug!(
