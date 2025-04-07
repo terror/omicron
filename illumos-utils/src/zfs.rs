@@ -520,9 +520,9 @@ impl CanMount {
 }
 
 /// Arguments to [Zfs::ensure_dataset].
-pub struct DatasetEnsureArgs<'a> {
+pub struct DatasetEnsureArgs {
     /// The full path of the ZFS dataset.
-    pub name: &'a str,
+    pub name: String,
 
     /// The expected mountpoint of this filesystem.
     ///
@@ -988,7 +988,7 @@ impl Zfs {
             additional_options,
         }: DatasetEnsureArgs,
     ) -> Result<(), EnsureDatasetErrorRaw> {
-        let dataset_info = Self::dataset_exists(name, &mountpoint)?;
+        let dataset_info = Self::dataset_exists(&name, &mountpoint)?;
 
         // Non-zoned datasets with an explicit mountpoint and the
         // "canmount=on" property should be mounted within the global zone.
@@ -1003,11 +1003,11 @@ impl Zfs {
             // If the dataset already exists: Update properties which might
             // have changed, and ensure it has been mounted if it needs
             // to be mounted.
-            Self::set_values(name, props.as_slice())
+            Self::set_values(&name, props.as_slice())
                 .map_err(|err| EnsureDatasetErrorRaw::from(err.err))?;
 
             if wants_mounting {
-                Self::ensure_dataset_mounted(name, &mountpoint)?;
+                Self::ensure_dataset_mounted(&name, &mountpoint)?;
             }
 
             return Ok(());
@@ -1059,7 +1059,7 @@ impl Zfs {
             }
         }
 
-        cmd.args(&["-o", &format!("mountpoint={}", mountpoint), name]);
+        cmd.args(&["-o", &format!("mountpoint={}", mountpoint), &name]);
 
         execute(cmd).map_err(|err| EnsureDatasetErrorRaw::from(err))?;
 
@@ -1073,7 +1073,7 @@ impl Zfs {
             execute(cmd).map_err(|err| EnsureDatasetErrorRaw::from(err))?;
         }
 
-        Self::set_values(name, props.as_slice())
+        Self::set_values(&name, props.as_slice())
             .map_err(|err| EnsureDatasetErrorRaw::from(err.err))?;
 
         Ok(())
