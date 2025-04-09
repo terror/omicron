@@ -288,7 +288,7 @@ impl LedgerTask {
                 internal_disks.all_config_datasets().peekable();
 
             // The condition we're waiting for: do we have at least one M.2?
-            if !config_datasets.peek().is_some() {
+            if config_datasets.peek().is_some() {
                 let config_datasets = config_datasets.collect::<Vec<_>>();
                 let loaded_config =
                     load_sled_config(&config_datasets, &self.log).await;
