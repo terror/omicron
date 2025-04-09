@@ -90,7 +90,8 @@ use nexus_client::{
     Client as NexusClient, Error as NexusError, types as NexusTypes,
 };
 use nexus_sled_agent_shared::inventory::{
-    OmicronSledConfig, OmicronZoneConfig, OmicronZoneType, OmicronZonesConfig,
+    ConfigReconcilerInventoryResult, OmicronSledConfig, OmicronZoneConfig,
+    OmicronZoneType, OmicronZonesConfig,
 };
 use nexus_types::deployment::BlueprintSledConfig;
 use nexus_types::deployment::{
@@ -196,6 +197,9 @@ pub enum SetupServiceError {
 
     #[error("Error making HTTP request to Sled Agent: {0}")]
     SledApi(#[from] SledAgentError<SledAgentTypes::Error>),
+
+    #[error("Sled config not yet reconciled: {0}")]
+    ConfigNotYetReconciled(String),
 
     #[error("Error making HTTP request to Nexus: {0}")]
     NexusApi(#[from] NexusError<NexusTypes::Error>),
@@ -421,6 +425,136 @@ impl ServiceInner {
         Ok(())
     }
 
+    // Wait until the config reconciler on the target sled has successfully
+    // reconciled the config at `generation`.
+    async fn wait_for_config_reconciliation_on_sled(
+        &self,
+        sled_address: SocketAddrV6,
+        generation: Generation,
+    ) -> Result<(), SetupServiceError> {
+        let dur = std::time::Duration::from_secs(60);
+        let client = reqwest::ClientBuilder::new()
+            .connect_timeout(dur)
+            .build()
+            .map_err(SetupServiceError::HttpClient)?;
+        let log = self.log.new(o!("sled_address" => sled_address.to_string()));
+        let client = SledAgentClient::new_with_client(
+            &format!("http://{}", sled_address),
+            client,
+            log.clone(),
+        );
+
+        let inv_check = || async {
+            info!(log, "attempting to read sled's inventory");
+            let inventory = match client.inventory().await {
+                Ok(response) => response.into_inner(),
+                Err(error) => {
+                    // TODO Many other codes here should not be retried.  See
+                    // omicron#4578.
+                    return Err(BackoffError::transient(
+                        SetupServiceError::SledApi(error),
+                    ));
+                }
+            };
+
+            let Some(config_reconciler) = inventory.config_reconciler else {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(
+                        "no reconcilation state available".to_string(),
+                    ),
+                ));
+            };
+
+            let Some(reconciled_config) =
+                config_reconciler.last_reconciled_config
+            else {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(
+                        "no reconcilation performed yet".to_string(),
+                    ),
+                ));
+            };
+
+            if reconciled_config.generation < generation {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(format!(
+                        "reconciled generation {} lower than \
+                         desired generation {generation}",
+                        reconciled_config.generation
+                    )),
+                ));
+            }
+
+            if let Some((disk_id, err)) = config_reconciler
+                .external_disks
+                .iter()
+                .find_map(|(disk_id, result)| match result {
+                    ConfigReconcilerInventoryResult::Ok => None,
+                    ConfigReconcilerInventoryResult::Err { message } => {
+                        Some((disk_id, message))
+                    }
+                })
+            {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(format!(
+                        "reconcilation for disk {disk_id} failed: {err}"
+                    )),
+                ));
+            }
+
+            if let Some((dataset_id, err)) = config_reconciler
+                .datasets
+                .iter()
+                .find_map(|(dataset_id, result)| match result {
+                    ConfigReconcilerInventoryResult::Ok => None,
+                    ConfigReconcilerInventoryResult::Err { message } => {
+                        Some((dataset_id, message))
+                    }
+                })
+            {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(format!(
+                        "reconcilation for dataset {dataset_id} failed: {err}"
+                    )),
+                ));
+            }
+
+            if let Some((zone_id, err)) = config_reconciler
+                .zones
+                .iter()
+                .find_map(|(zone_id, result)| match result {
+                    ConfigReconcilerInventoryResult::Ok => None,
+                    ConfigReconcilerInventoryResult::Err { message } => {
+                        Some((zone_id, message))
+                    }
+                })
+            {
+                return Err(BackoffError::transient(
+                    SetupServiceError::ConfigNotYetReconciled(format!(
+                        "reconcilation for zone {zone_id} failed: {err}"
+                    )),
+                ));
+            }
+
+            Ok(())
+        };
+        let log_failure = |error, delay| {
+            warn!(
+                log,
+                "sled config not yet reconciled";
+                "error" => #%error,
+                "retry_after" => ?delay,
+            );
+        };
+        retry_notify(
+            retry_policy_internal_service_aggressive(),
+            inv_check,
+            log_failure,
+        )
+        .await?;
+
+        Ok(())
+    }
     // Ensure that the desired sled configuration for a particular zone version
     // is deployed.
     //
@@ -463,8 +597,11 @@ impl ServiceInner {
                 };
 
                 self.set_config_on_sled(*sled_address, sled_config).await?;
-
-                // TODO-john wait until sled has reconciled config!
+                self.wait_for_config_reconciliation_on_sled(
+                    *sled_address,
+                    zones_config.generation,
+                )
+                .await?;
 
                 Ok::<(), SetupServiceError>(())
             }),
