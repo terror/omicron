@@ -346,12 +346,25 @@ impl ReconcilerTaskState {
         }
     }
 
-    fn has_retryable_error(&self) -> bool {
+    fn has_retryable_error(&self, log: &Logger) -> bool {
         // If we have an NTP zone but time is not yet sync'd, consider that a
         // retryable error: during rack setup, RSS waits for all sleds to report
         // that time has sync'd, so we need to keep checking until it is.
+        info!(
+            log, "XXX-john";
+            "timesync_status" => ?self.timesync_status,
+        );
         if !self.timesync_status.is_synchronized() {
+            info!(
+                log, "XXX-john";
+                "have_config" => self.last_reconciled_config.is_some(),
+            );
             if let Some(config) = &self.last_reconciled_config {
+                info!(
+                    log, "XXX-john";
+                    "have_ntp" =>
+                        config.zones.iter().any(|z| z.zone_type.is_ntp()),
+                );
                 if config.zones.iter().any(|z| z.zone_type.is_ntp()) {
                     return true;
                 }
@@ -453,6 +466,11 @@ impl ReconcilerTask {
                     Either::Left(future::pending())
                 }
                 ReconciliationResult::ShouldRetry => {
+                    info!(
+                        self.log,
+                        "reconcilation result has retryable error; will retry";
+                        "retry_after" => ?SLEEP_BETWEEN_RETRIES,
+                    );
                     Either::Right(tokio::time::sleep(SLEEP_BETWEEN_RETRIES))
                 }
             };
@@ -600,7 +618,7 @@ impl ReconcilerTask {
         )
         .await;
 
-        let result = if current_state.has_retryable_error() {
+        let result = if current_state.has_retryable_error(&self.log) {
             ReconciliationResult::ShouldRetry
         } else {
             ReconciliationResult::NoRetryNeeded
