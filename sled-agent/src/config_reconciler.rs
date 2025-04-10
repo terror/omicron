@@ -618,12 +618,6 @@ impl ReconcilerTask {
         )
         .await;
 
-        let result = if current_state.has_retryable_error(&self.log) {
-            ReconciliationResult::ShouldRetry
-        } else {
-            ReconciliationResult::NoRetryNeeded
-        };
-
         // Notify any receivers of our post-reconciliation state. We always
         // update the `status`, and may or may not have updated other fields.
         current_state.last_reconciled_config = Some(sled_config);
@@ -631,6 +625,16 @@ impl ReconcilerTask {
             completed: Instant::now(),
             elapsed: started.elapsed(),
         };
+
+        // Do we need to retry reconcilation based on the results of this
+        // attempt? (We grab this here so we can move `current_state` into
+        // `self.state` in the closure below, then return this result after.)
+        let result = if current_state.has_retryable_error(&self.log) {
+            ReconciliationResult::ShouldRetry
+        } else {
+            ReconciliationResult::NoRetryNeeded
+        };
+
         self.state.send_modify(|state| {
             *state = Arc::new(current_state);
         });
