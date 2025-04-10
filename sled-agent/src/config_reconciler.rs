@@ -347,6 +347,19 @@ impl ReconcilerTaskState {
     }
 
     fn has_retryable_error(&self) -> bool {
+        // If we have an NTP zone but time is not yet sync'd, consider that a
+        // retryable error: during rack setup, RSS waits for all sleds to report
+        // that time has sync'd, so we need to keep checking until it is.
+        if !self.timesync_status.is_synchronized() {
+            if let Some(config) = &self.last_reconciled_config {
+                if config.zones.iter().any(|z| z.zone_type.is_ntp()) {
+                    return true;
+                }
+            }
+        }
+
+        // Otherwise, check whether any of our disk/dataset/zone work failed in
+        // a retryable way.
         self.external_disks.has_disk_with_retryable_error()
             || self.datasets.has_dataset_with_retryable_error()
             || self.zones.has_zone_with_retryable_error()
