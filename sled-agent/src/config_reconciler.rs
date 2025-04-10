@@ -466,7 +466,13 @@ impl ReconcilerTask {
                 // Cancel-safe per docs on `changed()`
                 result = self.current_config_rx.changed() => {
                     match result {
-                        Ok(()) => continue,
+                        Ok(()) => {
+                            info!(
+                                self.log,
+                                "starting reconciliation due to config change"
+                            );
+                            continue;
+                        }
                         Err(_closed) => {
                             // This should never happen in production, but may
                             // in tests.
@@ -482,7 +488,13 @@ impl ReconcilerTask {
                 // Cancel-safe per docs on `changed()`
                 result = self.raw_disks_rx.changed() => {
                     match result {
-                        Ok(()) => continue,
+                        Ok(()) => {
+                            info!(
+                                self.log,
+                                "starting reconciliation due to raw disk change"
+                            );
+                            continue;
+                        }
                         Err(_closed) => {
                             // This should never happen in production, but may
                             // in tests.
@@ -498,6 +510,10 @@ impl ReconcilerTask {
                 // Cancel-safe: this is either `future::pending()` (never
                 // completes) or `sleep()` (we don't care if it's cancelled)
                 _ = maybe_retry => {
+                    info!(
+                        self.log,
+                        "starting reconciliation due to retryable error"
+                    );
                     continue;
                 }
             }
