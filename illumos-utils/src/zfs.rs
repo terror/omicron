@@ -133,11 +133,14 @@ enum MountpointError {
 
 #[derive(thiserror::Error, Debug)]
 enum EnsureDatasetErrorRaw {
-    #[error("ZFS execution error: {0}")]
+    #[error("ZFS execution error")]
     Execution(#[from] crate::ExecutionError),
 
-    #[error("Unexpected output from ZFS commands: {0}")]
-    Output(String),
+    #[error(
+        "Unexpected output from ZFS commands: got {got:?} \
+         but expected {expected:?}"
+    )]
+    Output { expected: String, got: String },
 
     #[error("Dataset does not exist")]
     DoesNotExist,
@@ -158,7 +161,7 @@ enum EnsureDatasetErrorRaw {
 
 /// Error returned by [`Zfs::ensure_dataset`].
 #[derive(thiserror::Error, Debug)]
-#[error("Failed to ensure filesystem '{name}': {err}")]
+#[error("Failed to ensure filesystem '{name}'")]
 pub struct EnsureDatasetError {
     name: String,
     #[source]
@@ -1115,8 +1118,12 @@ impl Zfs {
         if let Ok(output) = execute(cmd) {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let values: Vec<&str> = stdout.trim().split('\t').collect();
-            if &values[..3] != &[name, "filesystem", &mountpoint.to_string()] {
-                return Err(EnsureDatasetErrorRaw::Output(stdout.to_string()));
+            let expected = &[name, "filesystem", &mountpoint.to_string()];
+            if &values[..3] != expected {
+                return Err(EnsureDatasetErrorRaw::Output {
+                    got: stdout.to_string(),
+                    expected: expected.join("\t"),
+                });
             }
             let mounted = values[3] == "yes";
             Ok(DatasetMountInfo::exists(mounted))
