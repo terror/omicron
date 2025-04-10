@@ -261,6 +261,7 @@ impl HardwareMonitor {
 
         self.raw_disks_tx.set_raw_disks(
             self.hardware_manager.disks().into_values().map(RawDisk::from),
+            &self.log,
         );
     }
 }
