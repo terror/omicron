@@ -15,9 +15,7 @@ use std::time::Instant;
 
 use futures::future;
 use futures::future::Either;
-use id_map::Entry;
 use id_map::IdMap;
-use id_map::IdMappable as _;
 use illumos_utils::dladm::EtherstubVnic;
 use illumos_utils::zpool::PathInPool;
 use illumos_utils::zpool::Zpool;
@@ -29,7 +27,6 @@ use nexus_sled_agent_shared::inventory::InventoryDisk;
 use nexus_sled_agent_shared::inventory::InventoryZpool;
 use nexus_sled_agent_shared::inventory::OmicronSledConfig;
 use omicron_common::api::external::ByteCount;
-use omicron_common::disk::DiskIdentity;
 use sled_storage::config::MountConfig;
 use sled_storage::disk::RawDisk;
 use slog::Logger;
@@ -60,53 +57,8 @@ pub(crate) use self::datasets::DatasetTaskError;
 pub(crate) use self::datasets::DatasetTaskHandle;
 pub(crate) use self::internal_disks::InternalDisksReceiver;
 pub(crate) use self::ledger::LedgerTaskError;
+pub(crate) use self::raw_disks::RawDisksSender;
 pub(crate) use self::zones::TimeSyncStatus;
-
-#[derive(Debug)]
-pub struct RawDisksSender {
-    tx: watch::Sender<IdMap<RawDisk>>,
-}
-
-impl RawDisksSender {
-    pub fn set_raw_disks<I>(&self, raw_disks: I)
-    where
-        I: Iterator<Item = RawDisk>,
-    {
-        let new_raw_disks = raw_disks.collect::<IdMap<_>>();
-        self.tx.send_if_modified(|prev_raw_disks| {
-            if *prev_raw_disks == new_raw_disks {
-                false
-            } else {
-                *prev_raw_disks = new_raw_disks;
-                true
-            }
-        });
-    }
-
-    pub fn add_or_update_raw_disk(&self, raw_disk: RawDisk) {
-        self.tx.send_if_modified(|raw_disks| {
-            match raw_disks.entry(raw_disk.id()) {
-                Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert(raw_disk);
-                    true
-                }
-                Entry::Occupied(mut occupied_entry) => {
-                    if *occupied_entry.get() == raw_disk {
-                        false
-                    } else {
-                        occupied_entry.insert(raw_disk);
-                        true
-                    }
-                }
-            }
-        });
-    }
-
-    pub fn remove_raw_disk(&self, identity: &DiskIdentity) {
-        self.tx
-            .send_if_modified(|raw_disks| raw_disks.remove(identity).is_some());
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ReconcilerStateReceiver {
@@ -156,7 +108,7 @@ impl ConfigReconcilerHandle {
         base_log: &Logger,
     ) -> (Self, RawDisksSender) {
         let mount_config = Arc::clone(dataset_task_handle.mount_config());
-        let (raw_disks_tx, raw_disks_rx) = watch::channel(IdMap::new());
+        let (raw_disks_tx, raw_disks_rx) = RawDisksSender::new();
         let internal_disks_rx = InternalDisksTask::spawn(
             Arc::clone(&mount_config),
             raw_disks_rx.clone(),
@@ -194,7 +146,7 @@ impl ConfigReconcilerHandle {
                 hold_while_waiting_for_sled_agent,
                 log,
             },
-            RawDisksSender { tx: raw_disks_tx },
+            raw_disks_tx,
         )
     }
 

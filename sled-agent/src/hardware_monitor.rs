@@ -184,7 +184,8 @@ impl HardwareMonitor {
                     self.raw_disks_tx.add_or_update_raw_disk(disk.into());
                 }
                 HardwareUpdate::DiskRemoved(disk) => {
-                    self.raw_disks_tx.remove_raw_disk(disk.identity());
+                    self.raw_disks_tx
+                        .remove_raw_disk(disk.identity(), &self.log);
                 }
             },
             Err(broadcast::error::RecvError::Lagged(count)) => {
