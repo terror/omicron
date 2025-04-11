@@ -372,12 +372,15 @@ impl SystemDescription {
             format!("attempted to access sled {} not found in system", sled_id)
         })?;
         let sled = Arc::make_mut(sled);
-        sled.inventory_sled_agent.ledgered_sled_config =
-            Some(sled_config.clone());
-        sled.inventory_sled_agent.last_reconciliation =
-            Some(ConfigReconcilerInventory::assume_reconciliation_success(
-                Some(sled_config),
+
+        let (reconciler_status, last_reconciliation) =
+            ConfigReconcilerInventory::assume_reconciliation_success(Some(
+                sled_config.clone(),
             ));
+
+        sled.inventory_sled_agent.ledgered_sled_config = Some(sled_config);
+        sled.inventory_sled_agent.reconciler_status = reconciler_status;
+        sled.inventory_sled_agent.last_reconciliation = last_reconciliation;
         Ok(self)
     }
 
@@ -659,6 +662,10 @@ impl Sled {
                 }
             };
             let sled_agent_address = get_sled_address(sled_subnet);
+            let (reconciler_status, last_reconciliation) =
+                ConfigReconcilerInventory::assume_reconciliation_success(Some(
+                    sled_config.clone(),
+                ));
             Inventory {
                 baseboard,
                 reservoir_size: ByteCount::from(1024),
@@ -692,12 +699,9 @@ impl Sled {
                     })
                     .collect(),
                 datasets: vec![],
-                ledgered_sled_config: Some(sled_config.clone()),
-                last_reconciliation: Some(
-                    ConfigReconcilerInventory::assume_reconciliation_success(
-                        Some(sled_config),
-                    ),
-                ),
+                ledgered_sled_config: Some(sled_config),
+                reconciler_status,
+                last_reconciliation,
             }
         };
 
@@ -836,7 +840,8 @@ impl Sled {
             zpools: vec![],
             datasets: vec![],
             ledgered_sled_config: inv_sled_agent.ledgered_sled_config.clone(),
-            last_reconciliation: inv_sled_agent.config_reconciler.clone(),
+            reconciler_status: inv_sled_agent.reconciler_status.clone(),
+            last_reconciliation: inv_sled_agent.last_reconciliation.clone(),
         };
 
         Sled {

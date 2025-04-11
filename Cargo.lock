@@ -6446,10 +6446,10 @@ dependencies = [
 name = "nexus-sled-agent-shared"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "daft",
  "id-map",
  "illumos-utils",
- "itertools 0.14.0",
  "omicron-common",
  "omicron-passwords",
  "omicron-uuid-kinds",

@@ -13,6 +13,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
+use chrono::DateTime;
+use chrono::Utc;
 use futures::future;
 use futures::future::Either;
 use id_map::IdMap;
@@ -320,8 +322,15 @@ enum CurrentConfig {
 pub(crate) enum ReconcilerTaskStatus {
     WaitingForInternalDisks,
     WaitingForRackSetup,
-    PerformingReconciliation { config: OmicronSledConfig, started: Instant },
-    Idle { completed: Instant, elapsed: Duration },
+    PerformingReconciliation {
+        config: OmicronSledConfig,
+        started_at: DateTime<Utc>,
+        started_instant: Instant,
+    },
+    Idle {
+        completed_at: DateTime<Utc>,
+        ran_for: Duration,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -388,14 +397,18 @@ impl ReconcilerTaskState {
             | ReconcilerTaskStatus::WaitingForRackSetup => InvStatus::NotYetRun,
             ReconcilerTaskStatus::PerformingReconciliation {
                 config,
-                started,
-                ..
+                started_at,
+                started_instant,
             } => InvStatus::Running {
                 config: config.clone(),
-                running_for: started.elapsed(),
+                started_at: *started_at,
+                running_for: started_instant.elapsed(),
             },
-            ReconcilerTaskStatus::Idle { elapsed, .. } => {
-                InvStatus::Idle { ran_for: *elapsed }
+            ReconcilerTaskStatus::Idle { completed_at, ran_for } => {
+                InvStatus::Idle {
+                    completed_at: *completed_at,
+                    ran_for: *ran_for,
+                }
             }
         };
 
@@ -609,7 +622,8 @@ impl ReconcilerTask {
             let state = Arc::make_mut(state);
             state.status = ReconcilerTaskStatus::PerformingReconciliation {
                 config: sled_config.clone(),
-                started,
+                started_at: Utc::now(),
+                started_instant: started,
             };
             inner = state.inner.as_deref().map(|inner| inner.clone());
         });
@@ -646,8 +660,8 @@ impl ReconcilerTask {
         self.state.send_modify(|state| {
             let state = Arc::make_mut(state);
             state.status = ReconcilerTaskStatus::Idle {
-                completed: Instant::now(),
-                elapsed: started.elapsed(),
+                completed_at: Utc::now(),
+                ran_for: started.elapsed(),
             };
             state.inner = Some(Arc::new(inner));
         });

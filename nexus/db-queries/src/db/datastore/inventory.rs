@@ -2360,6 +2360,10 @@ impl DataStore {
                 datasets: Default::default(),
                 zones: omicron_zones.zones.into_iter().collect(),
             });
+            let (reconciler_status, last_reconciliation) =
+                ConfigReconcilerInventory::assume_reconciliation_success(
+                    ledgered_sled_config.clone(),
+                );
 
             let sled_agent = nexus_types::inventory::SledAgent {
                 time_collected: s.time_collected,
@@ -2392,13 +2396,9 @@ impl DataStore {
                     .get(sled_id.as_untyped_uuid())
                     .map(|datasets| datasets.to_vec())
                     .unwrap_or_default(),
-                ledgered_sled_config: ledgered_sled_config.clone(),
-                // TODO-john also extremely wrong
-                config_reconciler: Some(
-                    ConfigReconcilerInventory::assume_reconciliation_success(
-                        ledgered_sled_config,
-                    ),
-                ),
+                ledgered_sled_config,
+                reconciler_status,
+                last_reconciliation,
             };
             sled_agents.insert(sled_id, sled_agent);
         }

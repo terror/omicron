@@ -19,6 +19,7 @@ pub use gateway_client::types::RotImageError;
 pub use gateway_client::types::RotSlot;
 pub use gateway_client::types::SpType;
 use nexus_sled_agent_shared::inventory::ConfigReconcilerInventory;
+use nexus_sled_agent_shared::inventory::ConfigReconcilerInventoryStatus;
 use nexus_sled_agent_shared::inventory::InventoryDataset;
 use nexus_sled_agent_shared::inventory::InventoryDisk;
 use nexus_sled_agent_shared::inventory::InventoryZpool;
@@ -525,7 +526,6 @@ pub struct SledAgent {
     pub zpools: Vec<Zpool>,
     pub datasets: Vec<Dataset>,
     pub ledgered_sled_config: Option<OmicronSledConfig>,
-    // TODO-john this is optional for backwards compatibility - can we make it
-    // non-optional?
-    pub config_reconciler: Option<ConfigReconcilerInventory>,
+    pub reconciler_status: ConfigReconcilerInventoryStatus,
+    pub last_reconciliation: Option<ConfigReconcilerInventory>,
 }

@@ -126,7 +126,7 @@ impl BackgroundTask for ServiceZoneNatTracker {
                 let sled_address = oxnet::Ipv6Net::host_net(*sled.ip);
 
                 let zones = sa
-                    .config_reconciler
+                    .last_reconciliation
                     .iter()
                     .flat_map(|c| c.running_omicron_zones());
 

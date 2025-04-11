@@ -579,7 +579,7 @@ pub fn sled_agent(
     datasets: Vec<InventoryDataset>,
     ledgered_sled_config: Option<OmicronSledConfig>,
 ) -> Inventory {
-    let config_reconciler =
+    let (reconciler_status, last_reconciliation) =
         ConfigReconcilerInventory::assume_reconciliation_success(
             ledgered_sled_config.clone(),
         );
@@ -595,6 +595,7 @@ pub fn sled_agent(
         zpools,
         datasets,
         ledgered_sled_config,
-        last_reconciliation: Some(config_reconciler),
+        reconciler_status,
+        last_reconciliation,
     }
 }

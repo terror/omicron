@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::{DateTime, Utc};
 use daft::Diffable;
 use id_map::{IdMap, IdMappable};
 use omicron_common::{
@@ -145,6 +146,7 @@ impl ConfigReconcilerInventory {
     ) -> (ConfigReconcilerInventoryStatus, Option<Self>) {
         let status = if sled_config.is_some() {
             ConfigReconcilerInventoryStatus::Idle {
+                completed_at: Utc::now(),
                 ran_for: Duration::from_secs(1),
             }
         } else {
@@ -199,8 +201,15 @@ impl From<Result<(), String>> for ConfigReconcilerInventoryResult {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ConfigReconcilerInventoryStatus {
     NotYetRun,
-    Running { config: OmicronSledConfig, running_for: Duration },
-    Idle { ran_for: Duration },
+    Running {
+        config: OmicronSledConfig,
+        started_at: DateTime<Utc>,
+        running_for: Duration,
+    },
+    Idle {
+        completed_at: DateTime<Utc>,
+        ran_for: Duration,
+    },
 }
 
 /// Describes the role of the sled within the rack.

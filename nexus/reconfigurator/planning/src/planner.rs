@@ -220,9 +220,8 @@ impl<'a> Planner<'a> {
             .get(&sled_id)
             // TODO-john is this correct? Can we decommission based on just the
             // ledgered config instead of the reconciled config?
-            .and_then(|sa| sa.config_reconciler.as_ref())
-            .and_then(|inv| inv.last_reconciled_config.as_ref())
-            .map(|config| config.generation)
+            .and_then(|sa| sa.last_reconciliation.as_ref())
+            .map(|reconcile| reconcile.last_reconciled_config.generation)
         else {
             // There is no current inventory for the sled agent, so we cannot
             // decommission any disks.
@@ -422,17 +421,12 @@ impl<'a> Planner<'a> {
                     as_of_generation,
                     ready_for_cleanup,
                 } if !ready_for_cleanup => {
-                    if let Some(reconciled) = &sled_inv.config_reconciler {
-                        if let Some(gen) = reconciled
-                            .last_reconciled_config
-                            .as_ref()
-                            .map(|c| c.generation)
+                    if let Some(reconciled) = &sled_inv.last_reconciliation {
+                        if reconciled.last_reconciled_config.generation
+                            >= as_of_generation
+                            && !reconciled.zones.contains_key(&zone.id)
                         {
-                            if gen >= as_of_generation
-                                && !reconciled.zones.contains_key(&zone.id)
-                            {
-                                zones_ready_for_cleanup.push(zone.id);
-                            }
+                            zones_ready_for_cleanup.push(zone.id);
                         }
                     }
                 }
@@ -572,7 +566,7 @@ impl<'a> Planner<'a> {
                 .get(&sled_id)
                 .map(|sled_agent| {
                     sled_agent
-                        .config_reconciler
+                        .last_reconciliation
                         .iter()
                         .flat_map(|inv| inv.running_omicron_zones())
                         .any(|z| z.zone_type.is_ntp())

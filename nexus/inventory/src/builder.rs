@@ -537,7 +537,8 @@ impl CollectionBuilder {
                 .map(|d| d.into())
                 .collect(),
             ledgered_sled_config: inventory.ledgered_sled_config,
-            config_reconciler: inventory.last_reconciliation,
+            reconciler_status: inventory.reconciler_status,
+            last_reconciliation: inventory.last_reconciliation,
         };
 
         if let Some(previous) = self.sleds.get(&sled_id) {
