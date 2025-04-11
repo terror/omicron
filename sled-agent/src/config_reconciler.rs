@@ -22,12 +22,12 @@ use illumos_utils::zpool::Zpool;
 use illumos_utils::zpool::ZpoolName;
 use key_manager::StorageKeyRequester;
 use nexus_sled_agent_shared::inventory::ConfigReconcilerInventory;
+use nexus_sled_agent_shared::inventory::ConfigReconcilerInventoryStatus;
 use nexus_sled_agent_shared::inventory::InventoryDataset;
 use nexus_sled_agent_shared::inventory::InventoryDisk;
 use nexus_sled_agent_shared::inventory::InventoryZpool;
 use nexus_sled_agent_shared::inventory::OmicronSledConfig;
 use omicron_common::api::external::ByteCount;
-use sled_storage::config::MountConfig;
 use sled_storage::disk::RawDisk;
 use slog::Logger;
 use slog_error_chain::InlineErrorChain;
@@ -121,7 +121,7 @@ impl ConfigReconcilerHandle {
         );
 
         let (reconciler_state_tx, reconciler_state_rx) =
-            watch::channel(Arc::new(ReconcilerTaskState::new(mount_config)));
+            watch::channel(Arc::new(ReconcilerTaskState::new()));
 
         let hold_while_waiting_for_sled_agent = Mutex::new(Some(
             ReconcilerTaskDependenciesHeldUntilSledAgentStarted {
@@ -326,48 +326,107 @@ pub(crate) enum ReconcilerTaskStatus {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ReconcilerTaskState {
-    last_reconciled_config: Option<OmicronSledConfig>,
-    external_disks: ExternalDiskMap,
-    datasets: DatasetMap,
-    zones: ZoneMap,
-    timesync_status: TimeSyncStatus,
+    inner: Option<Arc<ReconcilerTaskStateInner>>,
     status: ReconcilerTaskStatus,
 }
 
 impl ReconcilerTaskState {
-    fn new(mount_config: Arc<MountConfig>) -> Self {
+    fn new() -> Self {
         Self {
-            last_reconciled_config: None,
-            external_disks: ExternalDiskMap::new(mount_config),
-            datasets: DatasetMap::default(),
-            zones: ZoneMap::default(),
-            timesync_status: TimeSyncStatus::NotYetChecked,
+            inner: None,
             status: ReconcilerTaskStatus::WaitingForInternalDisks,
         }
     }
 
-    fn has_retryable_error(&self, log: &Logger) -> bool {
+    // TODO-john comments! only use this for "is the zpool still here"; maybe we
+    // need a different function?
+    pub fn all_managed_external_disk_pools(
+        &self,
+    ) -> impl Iterator<Item = &ZpoolName> + '_ {
+        self.inner.iter().flat_map(|inner| {
+            inner.external_disks.all_managed_external_disk_pools()
+        })
+    }
+
+    pub(crate) fn timesync_status(&self) -> &TimeSyncStatus {
+        static STATUS_IF_NOT_YET_RECONCILED: TimeSyncStatus =
+            TimeSyncStatus::NotYetChecked;
+        self.inner
+            .as_ref()
+            .map(|inner| &inner.timesync_status)
+            .unwrap_or(&STATUS_IF_NOT_YET_RECONCILED)
+    }
+
+    pub(crate) fn all_mounted_zone_root_datasets(
+        &self,
+    ) -> impl Iterator<Item = PathInPool> + '_ {
+        self.inner.iter().flat_map(|inner| {
+            inner.datasets.all_mounted_zone_root_datasets(
+                inner.external_disks.mount_config(),
+            )
+        })
+    }
+
+    pub(crate) fn all_mounted_debug_datasets(
+        &self,
+    ) -> impl Iterator<Item = PathInPool> + '_ {
+        self.inner.iter().flat_map(|inner| {
+            inner
+                .datasets
+                .all_mounted_debug_datasets(inner.external_disks.mount_config())
+        })
+    }
+
+    pub(crate) fn to_inventory(
+        &self,
+    ) -> (ConfigReconcilerInventoryStatus, Option<ConfigReconcilerInventory>)
+    {
+        use nexus_sled_agent_shared::inventory::ConfigReconcilerInventoryStatus as InvStatus;
+
+        let status = match &self.status {
+            ReconcilerTaskStatus::WaitingForInternalDisks
+            | ReconcilerTaskStatus::WaitingForRackSetup => InvStatus::NotYetRun,
+            ReconcilerTaskStatus::PerformingReconciliation {
+                config,
+                started,
+                ..
+            } => InvStatus::Running {
+                config: config.clone(),
+                running_for: started.elapsed(),
+            },
+            ReconcilerTaskStatus::Idle { elapsed, .. } => {
+                InvStatus::Idle { ran_for: *elapsed }
+            }
+        };
+
+        let inv = self.inner.as_ref().map(|inner| ConfigReconcilerInventory {
+            last_reconciled_config: inner.sled_config.clone(),
+            external_disks: inner.external_disks.to_inventory(),
+            datasets: inner.datasets.to_inventory(),
+            zones: inner.zones.to_inventory(),
+        });
+
+        (status, inv)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ReconcilerTaskStateInner {
+    sled_config: OmicronSledConfig,
+    external_disks: ExternalDiskMap,
+    datasets: DatasetMap,
+    zones: ZoneMap,
+    timesync_status: TimeSyncStatus,
+}
+
+impl ReconcilerTaskStateInner {
+    fn has_retryable_error(&self) -> bool {
         // If we have an NTP zone but time is not yet sync'd, consider that a
         // retryable error: during rack setup, RSS waits for all sleds to report
         // that time has sync'd, so we need to keep checking until it is.
-        info!(
-            log, "XXX-john";
-            "timesync_status" => ?self.timesync_status,
-        );
         if !self.timesync_status.is_synchronized() {
-            info!(
-                log, "XXX-john";
-                "have_config" => self.last_reconciled_config.is_some(),
-            );
-            if let Some(config) = &self.last_reconciled_config {
-                info!(
-                    log, "XXX-john";
-                    "have_ntp" =>
-                        config.zones.iter().any(|z| z.zone_type.is_ntp()),
-                );
-                if config.zones.iter().any(|z| z.zone_type.is_ntp()) {
-                    return true;
-                }
+            if self.sled_config.zones.iter().any(|z| z.zone_type.is_ntp()) {
+                return true;
             }
         }
 
@@ -376,59 +435,6 @@ impl ReconcilerTaskState {
         self.external_disks.has_disk_with_retryable_error()
             || self.datasets.has_dataset_with_retryable_error()
             || self.zones.has_zone_with_retryable_error()
-    }
-
-    // TODO-john comments! only use this for "is the zpool still here"; maybe we
-    // need a different function?
-    pub fn all_managed_external_disk_pools(
-        &self,
-    ) -> impl Iterator<Item = &ZpoolName> + '_ {
-        self.external_disks.all_managed_external_disk_pools()
-    }
-
-    pub(crate) fn timesync_status(&self) -> &TimeSyncStatus {
-        &self.timesync_status
-    }
-
-    pub(crate) fn all_mounted_zone_root_datasets(
-        &self,
-    ) -> impl Iterator<Item = PathInPool> + '_ {
-        self.datasets
-            .all_mounted_zone_root_datasets(self.external_disks.mount_config())
-    }
-
-    pub(crate) fn all_mounted_debug_datasets(
-        &self,
-    ) -> impl Iterator<Item = PathInPool> + '_ {
-        self.datasets
-            .all_mounted_debug_datasets(self.external_disks.mount_config())
-    }
-
-    pub(crate) fn to_inventory(&self) -> ConfigReconcilerInventory {
-        use nexus_sled_agent_shared::inventory::ConfigReconcilerInventoryStatus as InvStatus;
-        ConfigReconcilerInventory {
-            last_reconciled_config: self.last_reconciled_config.clone(),
-            external_disks: self.external_disks.to_inventory(),
-            datasets: self.datasets.to_inventory(),
-            zones: self.zones.to_inventory(),
-            status: match &self.status {
-                ReconcilerTaskStatus::WaitingForInternalDisks
-                | ReconcilerTaskStatus::WaitingForRackSetup => {
-                    InvStatus::NotYetRun
-                }
-                ReconcilerTaskStatus::PerformingReconciliation {
-                    config,
-                    started,
-                    ..
-                } => InvStatus::Running {
-                    config: config.clone(),
-                    running_for: started.elapsed(),
-                },
-                ReconcilerTaskStatus::Idle { elapsed, .. } => {
-                    InvStatus::Idle { ran_for: *elapsed }
-                }
-            },
-        }
     }
 }
 
@@ -598,45 +604,52 @@ impl ReconcilerTask {
         // Update the current state to note that we're performing reconcilation,
         // and also stash a clone of it in `current_state`.
         let started = Instant::now();
-        let mut current_state = None;
+        let mut inner = None;
         self.state.send_modify(|state| {
             let state = Arc::make_mut(state);
             state.status = ReconcilerTaskStatus::PerformingReconciliation {
                 config: sled_config.clone(),
                 started,
             };
-            current_state = Some(state.clone());
+            inner = state.inner.as_deref().map(|inner| inner.clone());
         });
-        let mut current_state =
-            current_state.expect("always populated by send_modify");
+        let mut inner = match inner {
+            Some(mut inner) => {
+                inner.sled_config = sled_config;
+                inner
+            }
+            None => ReconcilerTaskStateInner {
+                sled_config,
+                external_disks: ExternalDiskMap::new(Arc::clone(
+                    self.dataset_task_handle.mount_config(),
+                )),
+                datasets: DatasetMap::default(),
+                zones: ZoneMap::default(),
+                timesync_status: TimeSyncStatus::NotYetChecked,
+            },
+        };
 
         // Perform the actual reconcilation.
-        self.reconcile_against_config(
-            &mut current_state,
-            &current_raw_disks,
-            &sled_config,
-        )
-        .await;
-
-        // Notify any receivers of our post-reconciliation state. We always
-        // update the `status`, and may or may not have updated other fields.
-        current_state.last_reconciled_config = Some(sled_config);
-        current_state.status = ReconcilerTaskStatus::Idle {
-            completed: Instant::now(),
-            elapsed: started.elapsed(),
-        };
+        self.reconcile_against_config(&mut inner, &current_raw_disks).await;
 
         // Do we need to retry reconcilation based on the results of this
         // attempt? (We grab this here so we can move `current_state` into
         // `self.state` in the closure below, then return this result after.)
-        let result = if current_state.has_retryable_error(&self.log) {
+        let result = if inner.has_retryable_error() {
             ReconciliationResult::ShouldRetry
         } else {
             ReconciliationResult::NoRetryNeeded
         };
 
+        // Notify any receivers of our post-reconciliation state. We always
+        // update the `status`, and may or may not have updated other fields.
         self.state.send_modify(|state| {
-            *state = Arc::new(current_state);
+            let state = Arc::make_mut(state);
+            state.status = ReconcilerTaskStatus::Idle {
+                completed: Instant::now(),
+                elapsed: started.elapsed(),
+            };
+            state.inner = Some(Arc::new(inner));
         });
 
         result
@@ -644,9 +657,8 @@ impl ReconcilerTask {
 
     async fn reconcile_against_config(
         &self,
-        state: &mut ReconcilerTaskState,
+        state: &mut ReconcilerTaskStateInner,
         raw_disks: &IdMap<RawDisk>,
-        sled_config: &OmicronSledConfig,
     ) {
         // ---
         // We go through the removal process first: shut down zones, then remove
@@ -657,7 +669,7 @@ impl ReconcilerTask {
         state
             .zones
             .shut_down_zones_if_needed(
-                &sled_config.zones,
+                &state.sled_config.zones,
                 &self.metrics_queue,
                 self.service_manager.zone_bundler(),
                 self.service_manager.ddm_reconciler(),
@@ -674,7 +686,7 @@ impl ReconcilerTask {
         // Now remove any disks we're no longer supposed to use.
         state.external_disks.stop_managing_if_needed(
             raw_disks,
-            &sled_config.disks,
+            &state.sled_config.disks,
             &self.log,
         );
 
@@ -694,7 +706,7 @@ impl ReconcilerTask {
             .external_disks
             .start_managing_if_needed(
                 raw_disks,
-                &sled_config.disks,
+                &state.sled_config.disks,
                 &self.key_requester,
                 &self.log,
             )
@@ -712,7 +724,7 @@ impl ReconcilerTask {
         match self
             .dataset_task_handle
             .datasets_ensure(
-                sled_config.datasets.clone(),
+                state.sled_config.datasets.clone(),
                 Arc::clone(state.external_disks.mount_config()),
                 managed_external_zpools
                     .iter()
@@ -748,7 +760,7 @@ impl ReconcilerTask {
         state
             .zones
             .start_zones_if_needed(
-                &sled_config.zones,
+                &state.sled_config.zones,
                 &self.service_manager,
                 state.external_disks.mount_config(),
                 state.timesync_status.is_synchronized(),

@@ -457,7 +457,8 @@ impl ServiceInner {
                 }
             };
 
-            let Some(config_reconciler) = inventory.config_reconciler else {
+            let Some(last_reconciliation) = inventory.last_reconciliation
+            else {
                 return Err(BackoffError::transient(
                     SetupServiceError::ConfigNotYetReconciled(
                         "no reconcilation state available".to_string(),
@@ -465,27 +466,19 @@ impl ServiceInner {
                 ));
             };
 
-            let Some(reconciled_config) =
-                config_reconciler.last_reconciled_config
-            else {
-                return Err(BackoffError::transient(
-                    SetupServiceError::ConfigNotYetReconciled(
-                        "no reconcilation performed yet".to_string(),
-                    ),
-                ));
-            };
+            let reconciled_gen =
+                last_reconciliation.last_reconciled_config.generation;
 
-            if reconciled_config.generation < generation {
+            if reconciled_gen < generation {
                 return Err(BackoffError::transient(
                     SetupServiceError::ConfigNotYetReconciled(format!(
-                        "reconciled generation {} lower than \
+                        "reconciled generation {reconciled_gen} lower than \
                          desired generation {generation}",
-                        reconciled_config.generation
                     )),
                 ));
             }
 
-            if let Some((disk_id, err)) = config_reconciler
+            if let Some((disk_id, err)) = last_reconciliation
                 .external_disks
                 .iter()
                 .find_map(|(disk_id, result)| match result {
@@ -502,7 +495,7 @@ impl ServiceInner {
                 ));
             }
 
-            if let Some((dataset_id, err)) = config_reconciler
+            if let Some((dataset_id, err)) = last_reconciliation
                 .datasets
                 .iter()
                 .find_map(|(dataset_id, result)| match result {
@@ -519,7 +512,7 @@ impl ServiceInner {
                 ));
             }
 
-            if let Some((zone_id, err)) = config_reconciler
+            if let Some((zone_id, err)) = last_reconciliation
                 .zones
                 .iter()
                 .find_map(|(zone_id, result)| match result {

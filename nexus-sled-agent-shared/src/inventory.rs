@@ -12,7 +12,6 @@ use std::{
 
 use daft::Diffable;
 use id_map::{IdMap, IdMappable};
-use itertools::Either;
 use omicron_common::{
     api::{
         external::{ByteCount, Generation},
@@ -112,9 +111,8 @@ pub struct Inventory {
     pub zpools: Vec<InventoryZpool>,
     pub datasets: Vec<InventoryDataset>,
     pub ledgered_sled_config: Option<OmicronSledConfig>,
-    // TODO-john this is optional for backwards compatibility - can we make it
-    // non-optional?
-    pub config_reconciler: Option<ConfigReconcilerInventory>,
+    pub reconciler_status: ConfigReconcilerInventoryStatus,
+    pub last_reconciliation: Option<ConfigReconcilerInventory>,
 }
 
 /// Describes the status of the internal process to reconcile the current sled
@@ -122,54 +120,29 @@ pub struct Inventory {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ConfigReconcilerInventory {
-    pub last_reconciled_config: Option<OmicronSledConfig>,
+    pub last_reconciled_config: OmicronSledConfig,
     pub external_disks:
         BTreeMap<PhysicalDiskUuid, ConfigReconcilerInventoryResult>,
     pub datasets: BTreeMap<DatasetUuid, ConfigReconcilerInventoryResult>,
     pub zones: BTreeMap<OmicronZoneUuid, ConfigReconcilerInventoryResult>,
-    pub status: ConfigReconcilerInventoryStatus,
 }
 
 impl ConfigReconcilerInventory {
     pub fn running_omicron_zones(
         &self,
     ) -> impl Iterator<Item = &OmicronZoneConfig> {
-        let Some(config) = &self.last_reconciled_config else {
-            return Either::Left(std::iter::empty());
-        };
-        Either::Right(self.zones.iter().filter_map(|(zone_id, result)| {
+        self.zones.iter().filter_map(|(zone_id, result)| {
             if *result != ConfigReconcilerInventoryResult::Ok {
                 return None;
             }
-            config.zones.get(zone_id)
-        }))
+            self.last_reconciled_config.zones.get(zone_id)
+        })
     }
 
     // TODO-john comments! This is just for tests and simulators
     pub fn assume_reconciliation_success(
         sled_config: Option<OmicronSledConfig>,
-    ) -> Self {
-        let external_disks = sled_config
-            .iter()
-            .flat_map(|config| {
-                config.disks.keys().map(|&disk_id| (disk_id, Ok(()).into()))
-            })
-            .collect();
-        let datasets = sled_config
-            .iter()
-            .flat_map(|config| {
-                config
-                    .datasets
-                    .keys()
-                    .map(|&dataset_id| (dataset_id, Ok(()).into()))
-            })
-            .collect();
-        let zones = sled_config
-            .iter()
-            .flat_map(|config| {
-                config.zones.keys().map(|&zone_id| (zone_id, Ok(()).into()))
-            })
-            .collect();
+    ) -> (ConfigReconcilerInventoryStatus, Option<Self>) {
         let status = if sled_config.is_some() {
             ConfigReconcilerInventoryStatus::Idle {
                 ran_for: Duration::from_secs(1),
@@ -177,13 +150,32 @@ impl ConfigReconcilerInventory {
         } else {
             ConfigReconcilerInventoryStatus::NotYetRun
         };
-        Self {
-            last_reconciled_config: sled_config.clone(),
-            external_disks,
-            datasets,
-            zones,
-            status,
-        }
+
+        let inv = sled_config.map(|sled_config| {
+            let external_disks = sled_config
+                .disks
+                .keys()
+                .map(|&disk_id| (disk_id, Ok(()).into()))
+                .collect();
+            let datasets = sled_config
+                .datasets
+                .keys()
+                .map(|&dataset_id| (dataset_id, Ok(()).into()))
+                .collect();
+            let zones = sled_config
+                .zones
+                .keys()
+                .map(|&zone_id| (zone_id, Ok(()).into()))
+                .collect();
+            Self {
+                last_reconciled_config: sled_config,
+                external_disks,
+                datasets,
+                zones,
+            }
+        });
+
+        (status, inv)
     }
 }
 

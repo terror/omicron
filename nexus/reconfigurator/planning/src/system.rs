@@ -374,7 +374,7 @@ impl SystemDescription {
         let sled = Arc::make_mut(sled);
         sled.inventory_sled_agent.ledgered_sled_config =
             Some(sled_config.clone());
-        sled.inventory_sled_agent.config_reconciler =
+        sled.inventory_sled_agent.last_reconciliation =
             Some(ConfigReconcilerInventory::assume_reconciliation_success(
                 Some(sled_config),
             ));
@@ -693,7 +693,7 @@ impl Sled {
                     .collect(),
                 datasets: vec![],
                 ledgered_sled_config: Some(sled_config.clone()),
-                config_reconciler: Some(
+                last_reconciliation: Some(
                     ConfigReconcilerInventory::assume_reconciliation_success(
                         Some(sled_config),
                     ),
@@ -836,7 +836,7 @@ impl Sled {
             zpools: vec![],
             datasets: vec![],
             ledgered_sled_config: inv_sled_agent.ledgered_sled_config.clone(),
-            config_reconciler: inv_sled_agent.config_reconciler.clone(),
+            last_reconciliation: inv_sled_agent.config_reconciler.clone(),
         };
 
         Sled {

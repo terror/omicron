@@ -595,6 +595,6 @@ pub fn sled_agent(
         zpools,
         datasets,
         ledgered_sled_config,
-        config_reconciler: Some(config_reconciler),
+        last_reconciliation: Some(config_reconciler),
     }
 }

@@ -738,7 +738,7 @@ impl SledAgent {
 
         let storage = self.storage.lock();
         let sled_config = self.sled_config.lock().unwrap().clone();
-        let config_reconciler =
+        let (reconciler_status, last_reconciliation) =
             ConfigReconcilerInventory::assume_reconciliation_success(
                 sled_config.clone(),
             );
@@ -804,7 +804,8 @@ impl SledAgent {
                 })
                 .unwrap_or_else(|_| vec![]),
             ledgered_sled_config: sled_config,
-            config_reconciler: Some(config_reconciler),
+            reconciler_status,
+            last_reconciliation,
         })
     }
 

@@ -1127,6 +1127,9 @@ impl SledAgent {
         let (zpools, datasets) =
             config_reconciler.current_zpool_and_dataset_inventory().await;
 
+        let (reconciler_status, last_reconciliation) =
+            self.inner.reconciler_state_rx.current().to_inventory();
+
         Ok(Inventory {
             sled_id,
             sled_agent_address,
@@ -1139,9 +1142,8 @@ impl SledAgent {
             zpools,
             datasets,
             ledgered_sled_config: config_reconciler.current_ledgered_config(),
-            config_reconciler: Some(
-                self.inner.reconciler_state_rx.current().to_inventory(),
-            ),
+            reconciler_status,
+            last_reconciliation,
         })
     }
 
