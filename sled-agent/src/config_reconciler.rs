@@ -60,6 +60,7 @@ pub(crate) use self::datasets::DatasetTaskHandle;
 pub(crate) use self::internal_disks::InternalDisksReceiver;
 pub(crate) use self::ledger::LedgerTaskError;
 pub(crate) use self::raw_disks::RawDisksSender;
+pub(crate) use self::zones::RunningOmicronZone;
 pub(crate) use self::zones::TimeSyncStatus;
 
 #[derive(Debug, Clone)]
@@ -345,6 +346,14 @@ impl ReconcilerTaskState {
             inner: None,
             status: ReconcilerTaskStatus::WaitingForInternalDisks,
         }
+    }
+
+    // TODO-john gross! can we not do this? only used by
+    // `cockroachdb_initialize()`
+    pub(crate) fn running_zones(
+        &self,
+    ) -> impl Iterator<Item = RunningOmicronZone<'_>> {
+        self.inner.iter().flat_map(|inner| inner.zones.running_zones())
     }
 
     // TODO-john comments! only use this for "is the zpool still here"; maybe we

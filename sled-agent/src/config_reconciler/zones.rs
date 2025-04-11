@@ -406,6 +406,19 @@ impl ZoneMap {
             }
         }
     }
+
+    pub(super) fn running_zones(
+        &self,
+    ) -> impl Iterator<Item = RunningOmicronZone<'_>> {
+        self.zones.iter().filter_map(|z| match &z.state {
+            ZoneState::Running(runtime) => Some(RunningOmicronZone {
+                config: &z.config,
+                runtime: &*runtime,
+            }),
+            ZoneState::PartiallyShutDown { .. }
+            | ZoneState::FailedToStart(_) => None,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -422,6 +435,13 @@ enum ZoneState {
 enum PartiallyShutDownState {
     FailedToStop(Arc<RunningZone>),
     FailedToDeleteGzAddress,
+}
+
+// TODO-john gross! can we not do this? only used by `ServiceManager`
+#[derive(Debug, Clone)]
+pub(crate) struct RunningOmicronZone<'a> {
+    pub(crate) config: &'a OmicronZoneConfig,
+    pub(crate) runtime: &'a RunningZone,
 }
 
 // A potentially-running zone and the configuration which started it.
@@ -694,7 +714,7 @@ impl StartDependencies for RealStartDependencies<'_> {
             )
             .await
         {
-            Ok(zone) => Ok(zone.into_runtime()),
+            Ok(zone) => Ok(zone),
             Err(err) => Err(ZoneStartError::FixThisError(err)),
         }
     }

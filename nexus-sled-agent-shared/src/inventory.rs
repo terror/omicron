@@ -539,6 +539,25 @@ impl OmicronZoneType {
         }
     }
 
+    /// Identifies whether this a CockroachDB zone
+    pub fn is_cockroachdb(&self) -> bool {
+        match self {
+            OmicronZoneType::CockroachDb { .. } => true,
+
+            OmicronZoneType::BoundaryNtp { .. }
+            | OmicronZoneType::InternalNtp { .. }
+            | OmicronZoneType::Clickhouse { .. }
+            | OmicronZoneType::ClickhouseKeeper { .. }
+            | OmicronZoneType::ClickhouseServer { .. }
+            | OmicronZoneType::Crucible { .. }
+            | OmicronZoneType::CruciblePantry { .. }
+            | OmicronZoneType::ExternalDns { .. }
+            | OmicronZoneType::InternalDns { .. }
+            | OmicronZoneType::Nexus { .. }
+            | OmicronZoneType::Oximeter { .. } => false,
+        }
+    }
+
     /// Identifies whether this a Crucible (not Crucible pantry) zone
     pub fn is_crucible(&self) -> bool {
         match self {

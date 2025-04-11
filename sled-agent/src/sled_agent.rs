@@ -739,7 +739,10 @@ impl SledAgent {
         } else if name.starts_with(ZONE_PREFIX) {
             self.inner
                 .services
-                .create_zone_bundle(name)
+                .create_zone_bundle(
+                    name,
+                    &self.inner.reconciler_state_rx.current(),
+                )
                 .await
                 .map_err(Error::from)
         } else {
@@ -829,7 +832,10 @@ impl SledAgent {
     }
 
     pub async fn cockroachdb_initialize(&self) -> Result<(), Error> {
-        self.inner.services.cockroachdb_initialize().await?;
+        self.inner
+            .services
+            .cockroachdb_initialize(&self.inner.reconciler_state_rx.current())
+            .await?;
         Ok(())
     }
 

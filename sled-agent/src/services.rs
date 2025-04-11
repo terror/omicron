@@ -30,7 +30,7 @@ use crate::bootstrap::early_networking::{
     EarlyNetworkSetup, EarlyNetworkSetupError,
 };
 use crate::config::SidecarRevision;
-use crate::config_reconciler::InternalDisksReceiver;
+use crate::config_reconciler::{InternalDisksReceiver, ReconcilerTaskState};
 use crate::ddm_reconciler::DdmReconciler;
 use crate::metrics::MetricsRequestQueue;
 use crate::params::{DendriteAsic, OmicronZoneConfigExt, OmicronZoneTypeExt};
@@ -111,7 +111,6 @@ use sled_storage::config::MountConfig;
 use sled_storage::dataset::{INSTALL_DATASET, ZONE_DATASET};
 use slog::Logger;
 use slog_error_chain::InlineErrorChain;
-use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -710,28 +709,6 @@ enum SwitchZoneState {
     },
 }
 
-// A running zone and the configuration which started it.
-// TODO-john remove
-#[derive(Debug)]
-pub(crate) struct OmicronZone {
-    runtime: RunningZone,
-    //config: OmicronZoneConfigLocal,
-}
-
-impl OmicronZone {
-    pub(crate) fn into_runtime(self) -> RunningZone {
-        self.runtime
-    }
-}
-
-impl OmicronZone {
-    fn name(&self) -> &str {
-        self.runtime.name()
-    }
-}
-
-type ZoneMap = BTreeMap<String, OmicronZone>;
-
 /// Manages miscellaneous Sled-local services.
 pub struct ServiceManagerInner {
     log: Logger,
@@ -741,8 +718,6 @@ pub struct ServiceManagerInner {
     time_synced: AtomicBool,
     switch_zone_maghemite_links: Vec<PhysicalLink>,
     sidecar_revision: SidecarRevision,
-    // Zones representing running services
-    zones: Mutex<ZoneMap>,
     underlay_vnic_allocator: VnicAllocator<Etherstub>,
     underlay_vnic: EtherstubVnic,
     bootstrap_vnic_allocator: VnicAllocator<Etherstub>,
@@ -942,7 +917,6 @@ impl ServiceManager {
                 time_synced: AtomicBool::new(false),
                 sidecar_revision,
                 switch_zone_maghemite_links,
-                zones: Mutex::new(BTreeMap::new()),
                 underlay_vnic_allocator: VnicAllocator::new(
                     "Service",
                     bootstrap_networking.underlay_etherstub,
@@ -3319,7 +3293,7 @@ impl ServiceManager {
         zone: &OmicronZoneConfig,
         time_is_synchronized: bool,
         all_u2_pools: &Vec<ZpoolName>,
-    ) -> Result<OmicronZone, Error> {
+    ) -> Result<RunningZone, Error> {
         // Ensure the zone has been fully removed before we try to boot it.
         //
         // This ensures that old "partially booted/stopped" zones do not
@@ -3345,18 +3319,15 @@ impl ServiceManager {
             root: zone_root_path.path.clone(),
         };
 
-        let runtime = self
-            .initialize_zone(
-                ZoneArgs::Omicron(&config),
-                zone_root_path,
-                // filesystems=
-                &[],
-                // data_links=
-                &[],
-            )
-            .await?;
-
-        Ok(OmicronZone { runtime })
+        self.initialize_zone(
+            ZoneArgs::Omicron(&config),
+            zone_root_path,
+            // filesystems=
+            &[],
+            // data_links=
+            &[],
+        )
+        .await
     }
 
     /*
@@ -3416,9 +3387,10 @@ impl ServiceManager {
     */
 
     /// Create a zone bundle for the provided zone.
-    pub async fn create_zone_bundle(
+    pub(crate) async fn create_zone_bundle(
         &self,
         name: &str,
+        reconciler_state: &ReconcilerTaskState,
     ) -> Result<ZoneBundleMetadata, BundleError> {
         // Search for the named zone.
         if let SwitchZoneState::Running { zone, .. } =
@@ -3432,7 +3404,9 @@ impl ServiceManager {
                     .await;
             }
         }
-        if let Some(zone) = self.inner.zones.lock().await.get(name) {
+        if let Some(zone) =
+            reconciler_state.running_zones().find(|z| z.runtime.name() == name)
+        {
             return self
                 .inner
                 .zone_bundler
@@ -3624,16 +3598,15 @@ impl ServiceManager {
         Ok(PathInPool { pool, path })
     }
 
-    pub async fn cockroachdb_initialize(&self) -> Result<(), Error> {
+    pub(crate) async fn cockroachdb_initialize(
+        &self,
+        reconciler_state: &ReconcilerTaskState,
+    ) -> Result<(), Error> {
         let log = &self.inner.log;
-        let dataset_zones = self.inner.zones.lock().await;
-        for zone in dataset_zones.values() {
-            // TODO: We could probably store the ZoneKind in the running zone to
-            // make this "comparison to existing zones by name" mechanism a bit
-            // safer.
-            if zone.name().contains(ZoneKind::CockroachDb.zone_prefix()) {
+        for zone in reconciler_state.running_zones() {
+            if zone.config.zone_type.is_cockroachdb() {
                 let address = Zones::get_address(
-                    Some(zone.name()),
+                    Some(zone.runtime.name()),
                     &zone.runtime.control_interface(),
                 )?
                 .ip();
