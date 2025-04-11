@@ -22,8 +22,6 @@ use crucible_agent_client::types::{
 };
 use dropshot::HandlerTaskMode;
 use dropshot::HttpError;
-use illumos_utils::zfs::DatasetProperties;
-use omicron_common::api::external::ByteCount;
 use omicron_common::disk::DatasetManagementStatus;
 use omicron_common::disk::DatasetName;
 use omicron_common::disk::DatasetsConfig;
@@ -1364,6 +1362,7 @@ impl StorageInner {
         Ok(config.clone())
     }
 
+    /*
     pub fn dataset_get(
         &self,
         dataset_name: &String,
@@ -1411,6 +1410,7 @@ impl StorageInner {
 
         return Err(HttpError::for_not_found(None, "Dataset not found".into()));
     }
+    */
 
     pub fn datasets_ensure(
         &mut self,

@@ -666,7 +666,7 @@ impl DatasetTask {
         match zfs
             .ensure_dataset(DatasetEnsureArgs {
                 name: dataset.name.full_name(),
-                mountpoint: Mountpoint::Path(
+                mountpoint: Mountpoint(
                     dataset.name.mountpoint(&mount_config.root),
                 ),
                 can_mount: CanMount::On,

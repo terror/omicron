@@ -12,7 +12,6 @@ use dropshot::Body;
 use dropshot::HttpError;
 use futures::Stream;
 use futures::StreamExt;
-use illumos_utils::zfs::DatasetProperties;
 use omicron_common::api::external::Error as ExternalError;
 use omicron_common::disk::CompressionAlgorithm;
 use omicron_common::disk::DatasetConfig;
@@ -155,11 +154,13 @@ pub trait LocalStorage: Sync {
         dataset_id: DatasetUuid,
     ) -> Result<DatasetConfig, Error>;
 
+    /*
     /// Returns properties about a dataset
     fn dyn_dataset_get(
         &self,
         dataset_name: &String,
     ) -> Result<DatasetProperties, Error>;
+    */
 
     /// Ensure a dataset is mounted
     async fn dyn_ensure_mounted_and_get_mountpoint(
@@ -206,6 +207,7 @@ impl LocalStorage for DatasetTaskHandle {
         //self.get_configured_dataset(zpool_id, dataset_id)??
     }
 
+    /*
     fn dyn_dataset_get(
         &self,
         dataset_name: &String,
@@ -226,6 +228,7 @@ impl LocalStorage for DatasetTaskHandle {
 
         Ok(dataset)
     }
+    */
 
     async fn dyn_ensure_mounted_and_get_mountpoint(
         &self,
@@ -274,18 +277,16 @@ impl LocalStorage for crate::sim::Storage {
         _dataset_id: DatasetUuid,
     ) -> Result<DatasetConfig, Error> {
         todo!()
-        //self.get_configured_dataset(zpool_id, dataset_id)??
     }
-    //async fn dyn_datasets_config_list(&self) -> Result<DatasetsConfig, Error> {
-    //    self.lock().datasets_config_list().map_err(|err| err.into())
-    //}
 
+    /*
     fn dyn_dataset_get(
         &self,
         dataset_name: &String,
     ) -> Result<DatasetProperties, Error> {
         self.lock().dataset_get(dataset_name).map_err(|err| err.into())
     }
+    */
 
     async fn dyn_ensure_mounted_and_get_mountpoint(
         &self,
