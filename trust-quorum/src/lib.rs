@@ -37,6 +37,9 @@ pub use validators::{
     ValidatedLrtqUpgradeMsgDiff, ValidatedReconfigureMsgDiff,
 };
 mod alarm;
+mod async_node;
+
+pub use async_node::AsyncNode;
 
 pub use alarm::Alarm;
 pub use crypto::RackSecret;
