@@ -140,7 +140,7 @@ impl TestRepo {
         expected_status: StatusCode,
     ) -> NexusRequest<'a> {
         let url = format!(
-            "/v1/system/update/repository?file_name={}",
+            "/v1/system/update/repositories?file_name={}",
             self.0.file_name().expect("archive path must have a file name")
         );
         let request = RequestBuilder::new(client, Method::PUT, &url)
@@ -196,7 +196,7 @@ async fn test_repo_upload_unconfigured() -> Result<()> {
     // with a 404 error.
     object_get_error(
         client,
-        "/v1/system/update/repository/1.0.0",
+        "/v1/system/update/repositories/1.0.0",
         StatusCode::NOT_FOUND,
     )
     .await;
@@ -348,7 +348,7 @@ async fn test_repo_upload() -> Result<()> {
 
     // Now get the repository that was just uploaded.
     let repo =
-        object_get::<TufRepo>(client, "/v1/system/update/repository/1.0.0")
+        object_get::<TufRepo>(client, "/v1/system/update/repositories/1.0.0")
             .await;
 
     // Compare just the repo metadata (not artifacts)
@@ -525,9 +525,11 @@ async fn test_repo_upload() -> Result<()> {
         );
 
         // Now get the repository that was just uploaded.
-        let get_repo =
-            object_get::<TufRepo>(client, "/v1/system/update/repository/2.0.0")
-                .await;
+        let get_repo = object_get::<TufRepo>(
+            client,
+            "/v1/system/update/repositories/2.0.0",
+        )
+        .await;
 
         // Validate the repo metadata
         assert_eq!(get_repo.system_version.to_string(), "2.0.0");
