@@ -20,6 +20,7 @@ use nexus_test_utils_macros::nexus_test;
 use nexus_types::external_api::views::{
     TufRepo, TufRepoUpload, TufRepoUploadStatus, UpdatesTrustRoot,
 };
+use omicron_common::api::external::TufArtifactMeta;
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -35,6 +36,17 @@ const TRUST_ROOTS_URL: &str = "/v1/system/update/trust-roots";
 
 type ControlPlaneTestContext =
     nexus_test_utils::ControlPlaneTestContext<omicron_nexus::Server>;
+
+/// Fetch artifacts for a repository using the lockstep API
+async fn fetch_repo_artifacts(
+    lockstep_client: &dropshot::test_util::ClientTestContext,
+    version: &str,
+) -> Vec<TufArtifactMeta> {
+    let url = format!("/deployment/repositories/{}/artifacts", version);
+    objects_list_page_authz::<TufArtifactMeta>(lockstep_client, &url)
+        .await
+        .items
+}
 
 pub struct TestTrustRoot {
     pub key: Key,
@@ -198,7 +210,7 @@ async fn test_repo_upload() -> Result<()> {
     let repo = trust_root.assemble_repo(&logctx.log, &[]).await?;
 
     // Generate a repository and upload it to Nexus.
-    let mut initial_repo = {
+    let initial_repo = {
         let response = repo
             .to_upload_request(client, StatusCode::OK)
             .execute()
@@ -210,29 +222,31 @@ async fn test_repo_upload() -> Result<()> {
         assert_eq!(response.status, TufRepoUploadStatus::Inserted);
         response.repo
     };
-    let unique_sha256_count = initial_repo
-        .artifacts
+
+    // Fetch artifacts using the new lockstep endpoint
+    let initial_artifacts =
+        fetch_repo_artifacts(&cptestctx.lockstep_client, "1.0.0").await;
+    let unique_sha256_count = initial_artifacts
         .iter()
         .map(|artifact| artifact.hash)
         .collect::<HashSet<_>>()
         .len();
     // The repository description should have `Zone` artifacts instead of the
     // composite `ControlPlane` artifact.
-    assert_eq!(
-        initial_repo
-            .artifacts
-            .iter()
-            .filter_map(|artifact| {
-                if artifact.id.kind == KnownArtifactKind::Zone.into() {
-                    Some(&artifact.id.name)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>(),
-        ["zone-1", "zone-2"]
-    );
-    assert!(!initial_repo.artifacts.iter().any(|artifact| {
+    let zone_names: HashSet<&str> = initial_artifacts
+        .iter()
+        .filter_map(|artifact| {
+            if artifact.id.kind == KnownArtifactKind::Zone.into() {
+                Some(artifact.id.name.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let expected_zones: HashSet<&str> =
+        ["zone-1", "zone-2"].into_iter().collect();
+    assert_eq!(zone_names, expected_zones);
+    assert!(!initial_artifacts.iter().any(|artifact| {
         artifact.id.kind == KnownArtifactKind::ControlPlane.into()
     }));
     // The generation number should now be 2.
@@ -272,7 +286,7 @@ async fn test_repo_upload() -> Result<()> {
 
     // Upload the repository to Nexus again. This should return a 200 with an
     // `AlreadyExists` status.
-    let mut reupload_description = {
+    let reupload_description = {
         let response = repo
             .into_upload_request(client, StatusCode::OK)
             .execute()
@@ -285,12 +299,32 @@ async fn test_repo_upload() -> Result<()> {
         response.repo
     };
 
-    initial_repo.sort_artifacts();
-    reupload_description.sort_artifacts();
+    // Fetch artifacts again and compare them
+    let mut reupload_artifacts =
+        fetch_repo_artifacts(&cptestctx.lockstep_client, "1.0.0").await;
+    let mut initial_artifacts_sorted = initial_artifacts.clone();
+
+    // Sort artifacts by their ID for comparison (same order as ArtifactId::cmp)
+    initial_artifacts_sorted.sort_by(|a, b| a.id.cmp(&b.id));
+    reupload_artifacts.sort_by(|a, b| a.id.cmp(&b.id));
 
     assert_eq!(
-        initial_repo, reupload_description,
-        "initial description matches reupload"
+        initial_artifacts_sorted, reupload_artifacts,
+        "initial artifacts match reupload artifacts"
+    );
+
+    // Also verify that the repo metadata (without artifacts) matches
+    assert_eq!(
+        initial_repo.hash, reupload_description.hash,
+        "repo hash matches"
+    );
+    assert_eq!(
+        initial_repo.system_version, reupload_description.system_version,
+        "system version matches"
+    );
+    assert_eq!(
+        initial_repo.valid_until, reupload_description.valid_until,
+        "valid_until matches"
     );
 
     // We didn't insert a new repo, so the generation number should still be 2.
@@ -429,15 +463,16 @@ async fn test_repo_upload() -> Result<()> {
         let response = serde_json::from_slice::<TufRepoUpload>(&response.body)
             .context("error deserializing response body")?;
         assert_eq!(response.status, TufRepoUploadStatus::Inserted);
-        let mut description = response.repo;
-        description.sort_artifacts();
+
+        // Fetch artifacts for the 2.0.0 repository
+        let artifacts_2_0_0 =
+            fetch_repo_artifacts(&cptestctx.lockstep_client, "2.0.0").await;
 
         // The artifacts should be exactly the same as the 1.0.0 repo we
         // uploaded, other than the installinator document (which will have
         // system version 2.0.0).
         let mut installinator_doc_1 = None;
-        let filtered_artifacts_1 = initial_repo
-            .artifacts
+        let filtered_artifacts_1 = initial_artifacts
             .iter()
             .filter(|artifact| {
                 if artifact.id.kind
@@ -451,8 +486,7 @@ async fn test_repo_upload() -> Result<()> {
             })
             .collect::<Vec<_>>();
         let mut installinator_doc_2 = None;
-        let filtered_artifacts_2 = description
-            .artifacts
+        let filtered_artifacts_2 = artifacts_2_0_0
             .iter()
             .filter(|artifact| {
                 if artifact.id.kind
