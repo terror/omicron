@@ -21,6 +21,7 @@ use nexus_db_model::{
     ArtifactHash, TufArtifact, TufRepo, TufRepoDescription, TufTrustRoot,
     to_db_typed_uuid,
 };
+use nexus_types::external_api::views;
 use omicron_common::api::external::{
     self, CreateResult, DataPageParams, DeleteResult, Generation,
     ListResultVec, LookupResult, LookupType, ResourceType, TufRepoInsertStatus,
@@ -43,10 +44,10 @@ pub struct TufRepoInsertResponse {
 }
 
 impl TufRepoInsertResponse {
-    pub fn into_external(self) -> external::TufRepoInsertResponse {
-        external::TufRepoInsertResponse {
-            recorded: self.recorded.into_external(),
-            status: self.status,
+    pub fn into_external(self) -> views::TufRepoUpload {
+        views::TufRepoUpload {
+            repo: self.recorded.repo.into_external().into(),
+            status: self.status.into(),
         }
     }
 }
