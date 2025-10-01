@@ -10,11 +10,15 @@ use nexus_reconfigurator_planning::planner::Planner;
 use nexus_reconfigurator_planning::planner::PlannerRng;
 use nexus_reconfigurator_preparation::PlanningInputFromDb;
 use nexus_types::deployment::Blueprint;
+use nexus_types::deployment::BlueprintArtifactVersion;
 use nexus_types::deployment::BlueprintMetadata;
 use nexus_types::deployment::BlueprintTarget;
 use nexus_types::deployment::BlueprintTargetSet;
+use nexus_types::deployment::BlueprintZoneDisposition;
+use nexus_types::deployment::BlueprintZoneImageSource;
 use nexus_types::deployment::PlannerConfig;
 use nexus_types::deployment::PlanningInput;
+use nexus_types::external_api::views::TargetReleaseSource;
 use nexus_types::internal_api::views::UpdateStatus;
 use nexus_types::inventory::Collection;
 use omicron_common::api::external::CreateResult;
@@ -227,5 +231,83 @@ impl super::Nexus {
         let status = UpdateStatus::new(old, new, &inventory);
 
         Ok(status)
+    }
+
+    pub(crate) async fn is_safe_to_change_target_release(
+        &self,
+        opctx: &OpContext,
+        current_target_release: &TargetReleaseSource,
+    ) -> Result<bool, Error> {
+        let current_target_version = match current_target_release {
+            TargetReleaseSource::Unspecified => {
+                // We've never set a target release before; it's always fine to
+                // set the first one.
+                return Ok(true);
+            }
+            TargetReleaseSource::SystemVersion { version } => {
+                version.to_string()
+            }
+        };
+
+        // Currently, it's unsafe to change the target release if there's an
+        // update in progress. (See
+        // <https://github.com/oxidecomputer/omicron/issues/8056> for
+        // discussion.) We check for this by looking at the Nexus versions in
+        // the current blueprint: if they're all running from a
+        // `current_target_version` artifact, we know we've completed an update
+        // to that target version, because we've performed handoff to the Nexus
+        // from that version (the final step of any update).
+        let (_, current_blueprint) =
+            self.datastore().blueprint_target_get_current_full(opctx).await?;
+
+        for (_, nexus_config, _) in current_blueprint
+            .all_nexus_zones(BlueprintZoneDisposition::is_in_service)
+        {
+            match &nexus_config.image_source {
+                BlueprintZoneImageSource::InstallDataset => {
+                    // If there's a Nexus running out of the install dataset,
+                    // then a sled has been mupdated and we're waiting on the
+                    // operator to set the target release to a version
+                    // containing a matching artifact. This should not block
+                    // setting a new target release.
+                    //
+                    // TODO-correctness This might be overly permissive -
+                    // recovering from a mupdate is an asynchronous process, so
+                    // they could have already set a target release with a
+                    // matching artifact and are now setting it again to a
+                    // different target release. But this is unlikely and hard
+                    // for us to detect here, so it seems safer to fail in a way
+                    // that lets an operator correct things than to get a subtle
+                    // case wrong and reject target releases that need to be
+                    // set.
+                    continue;
+                }
+                BlueprintZoneImageSource::Artifact { version, .. } => {
+                    match version {
+                        BlueprintArtifactVersion::Available { version } => {
+                            // This is the only case we know it's safe to
+                            // reject: There's an existing Nexus zone running on
+                            // a version that is not the current target release,
+                            // which means we must be in the process of updating
+                            // to `current_target_version`.
+                            if version.as_str() != current_target_version {
+                                return Ok(false);
+                            }
+                        }
+                        BlueprintArtifactVersion::Unknown => {
+                            // This shouldn't happen; it means we have an
+                            // artifact source in the blueprint that doesn't
+                            // match a known artifact in the database. Similar
+                            // to the argument above, fail in a way that is
+                            // perhaps too permissive than potentially rejecting
+                            // a change that could correct a problem.
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(true)
     }
 }
