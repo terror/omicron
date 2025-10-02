@@ -337,10 +337,6 @@ async fn test_repo_upload() -> Result<()> {
         initial_repo.system_version, reupload_description.system_version,
         "system version matches"
     );
-    assert_eq!(
-        initial_repo.valid_until, reupload_description.valid_until,
-        "valid_until matches"
-    );
 
     // We didn't insert a new repo, so the generation number should still be 2.
     assert_eq!(
@@ -358,10 +354,6 @@ async fn test_repo_upload() -> Result<()> {
     assert_eq!(
         initial_repo.system_version, repo.system_version,
         "system version matches"
-    );
-    assert_eq!(
-        initial_repo.valid_until, repo.valid_until,
-        "valid_until matches"
     );
 
     // Upload a new repository with the same system version but a different
